@@ -6,6 +6,7 @@ export async function uploadEvent({
   venue,
   image,
   form_link,
+  category,
   event_type,
 }) {
   if (!image) throw new Error("No image provided");
@@ -22,12 +23,20 @@ export async function uploadEvent({
     throw new Error("Image upload failed: " + uploadError.message);
   }
 
-  // Get public URL
-  const { data } = supabase.storage
+  // Get image URL (generate signed URL to ensure access even if the bucket is private)
+  let finalImageUrl = "";
+  const { data: signedData, error: signedError } = await supabase.storage
     .from(bucketName)
-    .getPublicUrl(fileName);
+    .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 5); // 5 years
 
-  const publicUrl = data.publicUrl;
+  if (!signedError && signedData?.signedUrl) {
+    finalImageUrl = signedData.signedUrl;
+  } else {
+    const { data: publicData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(fileName);
+    finalImageUrl = publicData.publicUrl;
+  }
 
   // Insert event
   const { error: insertError } = await supabase
@@ -37,9 +46,9 @@ export async function uploadEvent({
         Name: event_name,
         Venue: venue,
         Time: start_time,
-        img_url: publicUrl,
+        img_url: finalImageUrl,
         gform_link: form_link,
-        category: event_type,
+        category: category || event_type,
       },
     ]);
 
@@ -47,5 +56,5 @@ export async function uploadEvent({
     throw new Error("Insert failed: " + insertError.message);
   }
 
-  return publicUrl;
+  return finalImageUrl;
 }
